@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Career Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .chat-container {
+            scrollbar-width: thin;
+            scrollbar-color: #6366f1 #e0e7ff;
+        }
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-container::-webkit-scrollbar-track {
+            background: #e0e7ff;
+        }
+        .chat-container::-webkit-scrollbar-thumb {
+            background-color: #6366f1;
+            border-radius: 4px;
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <header class="bg-indigo-600 text-white p-4 shadow-md">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold">AI Career Guide</h1>
+            <button id="reset-btn" class="bg-white text-indigo-600 px-4 py-2 rounded-md hover:bg-gray-100 transition">
+                <i class="fas fa-sync-alt mr-2"></i>Restart
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-grow container mx-auto p-4 flex flex-col">
+        <div id="chat-container" class="flex-grow bg-white rounded-lg shadow-md p-4 mb-4 overflow-y-auto chat-container">
+            <div class="chat-message bot-message mb-4 fade-in">
+                <div class="flex items-start">
+                    <div class="bg-indigo-100 text-indigo-800 rounded-full w-10 h-10 flex items-center justify-center mr-3">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="bg-indigo-50 rounded-lg p-3 max-w-[80%]">
+                        <p>Hello! I'm your AI Career Guide. I'll help you explore career options based on your skills and interests. Let's get started!</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="assessment-questions" class="space-y-4"></div>
+            <div id="chat-messages" class="space-y-4"></div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-4">
+            <div id="input-container" class="flex">
+                <input type="text" id="user-input" 
+                    class="flex-grow border border-gray-300 rounded-l-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                    placeholder="Type your message here...">
+                <button id="send-btn" 
+                    class="bg-indigo-600 text-white px-4 py-2 rounded-r-lg hover:bg-indigo-700 transition">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+            <div id="typing-indicator" class="hidden mt-2 text-gray-500">
+                <i class="fas fa-circle-notch fa-spin mr-2"></i>AI is thinking...
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Configuration - In production, these should come from environment variables
+        const API_CONFIG = {
+            API_KEY: "AIzaSyBsZrZLwvQSjZgmukPdURAcNRKjmx9GScA",
+            API_URL: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        };
+
+        // DOM Elements
+        const chatContainer = document.getElementById('chat-container');
+        const assessmentQuestions = document.getElementById('assessment-questions');
+        const chatMessages = document.getElementById('chat-messages');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        // State
+        let currentQuestionIndex = 0;
+        let userProfile = {};
+        const questions = [
+            "What is your current education level?",
+            "What are your top 3 skills? (comma separated)",
+            "What industries interest you?",
+            "Where would you prefer to work (location/remote)?",
+            "What is your approximate years of experience?",
+            "What are your salary expectations?"
+        ];
+
+        // Initialize the chat
+        displayNextQuestion();
+
+        // Event Listeners
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+        resetBtn.addEventListener('click', resetChat);
+
+        // API Functions
+        async function callOpenAI(prompt, context = []) {
+            try {
+                const response = await fetch(`${API_CONFIG.API_URL}?key=${API_CONFIG.API_KEY}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            {
+                                role: "system",
+                                content: "You are a career guidance assistant. Provide helpful, concise answers about career paths, skills, and job search strategies."
+                            },
+                            ...context,
+                            {
+                                role: "user",
+                                content: prompt
+                            }
+                        ],
+                        temperature: 0.7
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`OpenAI API error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                return data.choices[0].message.content;
+            } catch (error) {
+                console.error("OpenAI API Error:", error);
+                return "I'm having trouble connecting to the AI service. Please try again later.";
+            }
+        }
+
+        // Chat Functions
+        function displayNextQuestion() {
+            if (currentQuestionIndex < questions.length) {
+                const question = questions[currentQuestionIndex];
+                addMessage(question, 'bot');
+            } else {
+                assessmentQuestions.style.display = 'none';
+                analyzeResponses();
+            }
+        }
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (message === '') return;
+
+            addMessage(message, 'user');
+            userInput.value = '';
+
+            if (currentQuestionIndex < questions.length) {
+                const questionKey = questions[currentQuestionIndex]
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, '')
+                    .replace(/\s+/g, '_');
+                userProfile[questionKey] = message;
+                currentQuestionIndex++;
+                displayNextQuestion();
+            } else {
+                showTypingIndicator();
+                const aiResponse = await callOpenAI(message, getConversationHistory());
+                addMessage(aiResponse, 'bot');
+                hideTypingIndicator();
+            }
+        }
+
+        function addMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${sender}-message mb-4 fade-in`;
+            
+            const messageContent = `
+                <div class="flex items-start ${sender === 'bot' ? '' : 'justify-end'}">
+                    ${sender === 'bot' ? 
+                        '<div class="bg-indigo-100 text-indigo-800 rounded-full w-10 h-10 flex items-center justify-center mr-3">' +
+                        '<i class="fas fa-robot"></i></div>' : ''}
+                    <div class="${sender === 'bot' ? 'bg-indigo-50' : 'bg-indigo-100'} rounded-lg p-3 max-w-[80%]">
+                        <p>${text}</p>
+                    </div>
+                    ${sender === 'user' ? 
+                        '<div class="bg-indigo-600 text-white rounded-full w-10 h-10 flex items-center justify-center ml-3">' +
+                        '<i class="fas fa-user"></i></div>' : ''}
+                </div>
+            `;
+            
+            messageDiv.innerHTML = messageContent;
+            
+            if (currentQuestionIndex < questions.length) {
+                assessmentQuestions.appendChild(messageDiv);
+            } else {
+                chatMessages.appendChild(messageDiv);
+            }
+            
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function getConversationHistory() {
+            const history = [];
+            
+            // Get assessment questions and answers
+            const questionElements = assessmentQuestions.querySelectorAll('.chat-message');
+            questionElements.forEach((el, index) => {
+                if (index % 2 === 0) { // Question (bot)
+                    const question = el.querySelector('p').textContent;
+                    history.push({ role: "assistant", content: question });
+                } else { // Answer (user)
+                    const answer = el.querySelector('p').textContent;
+                    history.push({ role: "user", content: answer });
+                }
+            });
+            
+            // Get free-form chat messages
+            const chatElements = chatMessages.querySelectorAll('.chat-message');
+            chatElements.forEach(el => {
+                const isBot = el.classList.contains('bot-message');
+                const content = el.querySelector('div > div').innerHTML;
+                history.push({
+                    role: isBot ? "assistant" : "user",
+                    content: content.startsWith('<p>') ? 
+                        content.replace('<p>', '').replace('</p>', '') : 
+                        content
+                });
+            });
+            
+            return history;
+        }
+
+        async function analyzeResponses() {
+            showTypingIndicator();
+            
+            try {
+                // Get career suggestions from OpenAI
+                const prompt = `Based on this profile, suggest 3 career paths and identify skill gaps:
+                
+                Education: ${userProfile.what_is_your_current_education_level}
+                Skills: ${userProfile.what_are_your_top_3_skills_comma_separated}
+                Interests: ${userProfile.what_industries_interest_you}
+                Experience: ${userProfile.what_is_your_approximate_years_of_experience}
+                Salary Expectations: ${userProfile.what_are_your_salary_expectations}
+                
+                Return your response in clear HTML format with headings for each section.`;
+                
+                const careerSuggestions = await callOpenAI(prompt);
+                
+                hideTypingIndicator();
+                displayRecommendations({
+                    careerSuggestions: careerSuggestions,
+                });
+            } catch (error) {
+                console.error("Analysis error:", error);
+                hideTypingIndicator();
+                addMessage("I couldn't complete your assessment. Let's try again.", 'bot');
+            }
+        }
+
+        function displayRecommendations(data) {
+            let html = `
+                <div class="bg-indigo-50 rounded-lg p-4 mb-4">
+                    <h3 class="text-xl font-semibold text-indigo-800 mb-3">Your Career Recommendations</h3>
+                    <div class="mb-6">
+                        ${data.careerSuggestions || `
+                        <h4 class="font-medium text-indigo-700 mb-2">🚀 Suggested Career Paths:</h4>
+                        <p>Based on your profile, we recommend exploring these career paths:</p>
+                        <ul class="list-disc pl-5 mt-2">
+                            <li>Data Scientist - Analyze complex data to help organizations make decisions</li>
+                            <li>UX Designer - Create user-friendly digital experiences</li>
+                            <li>Digital Marketing Specialist - Develop online marketing strategies</li>
+                        </ul>
+                        `}
+                    </div>
+                    <div class="bg-indigo-100 rounded-lg p-3 mt-4">
+                        <p class="text-indigo-800">You can ask me more about any of these recommendations. What would you like to know?</p>
+                    </div>
+                </div>
+            `;
+            
+            addMessage(html, 'bot');
+        }
+
+        function showTypingIndicator() {
+            typingIndicator.classList.remove('hidden');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            typingIndicator.classList.add('hidden');
+        }
+
+        function resetChat() {
+            currentQuestionIndex = 0;
+            userProfile = {};
+            assessmentQuestions.innerHTML = '';
+            chatMessages.innerHTML = '';
+            assessmentQuestions.style.display = 'block';
+            addMessage("Let's start over. I'll help you explore career options based on your skills and interests.", 'bot');
+            displayNextQuestion();
+        }
+    </script>
+</body>
+</html>
